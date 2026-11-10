@@ -1,0 +1,81 @@
+# PostgreSQL owned by restaurant-service only (database-per-service).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: restaurant-db-secret
+  namespace: quickbite
+type: Opaque
+stringData:
+  # Demo credentials for the local minikube cluster only.
+  POSTGRES_USER: restaurant
+  POSTGRES_PASSWORD: restaurant-local-pass
+  POSTGRES_DB: restaurant
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: restaurant-db-data
+  namespace: quickbite
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: restaurant-db
+  namespace: quickbite
+  labels:
+    app: restaurant-db
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: restaurant-db
+  template:
+    metadata:
+      labels:
+        app: restaurant-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: restaurant-db-secret
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: restaurant-db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: restaurant-db
+  namespace: quickbite
+spec:
+  selector:
+    app: restaurant-db
+  ports:
+    - port: 5432
+      targetPort: 5432
